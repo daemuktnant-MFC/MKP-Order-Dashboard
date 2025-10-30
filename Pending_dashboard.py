@@ -21,8 +21,8 @@ SHEET_NAME = "MarketplaceData"
 
 # กำหนดสีตามโจทย์
 COLOR_MAP = {
-    "Canpick": "#0066FF",    # สีสำหรับ Canpick
-    "Cannotpick": "#FF9966",   # สีสำหรับ Cannotpick
+    "Canpick": "#00CC66",    # สีสำหรับ Canpick
+    "Cannotpick": "#FF5050",   # สีสำหรับ Cannotpick
 }
 
 # กำหนดสีสำหรับ Store โดยเฉพาะตามโจทย์
@@ -300,3 +300,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
