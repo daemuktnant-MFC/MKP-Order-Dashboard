@@ -195,7 +195,7 @@ def main():
     with left_main_col:
         # ส่วนนี้จะแสดงผลเมื่อ df ถูกโหลดข้อมูลแล้ว (จากคอลัมน์ขวา)
         st.markdown(
-            '<h2 style="font-size: 49px;">📊 Marketplace Dashboard</h2>', 
+            '<h2 style="font-size: 47px;">📊 Marketplace Dashboard</h2>', 
             unsafe_allow_html=True
         )
         if not df.empty:
@@ -233,18 +233,18 @@ def main():
                         barmode='stack', color_discrete_map=COLOR_MAP,
                         text='Value', category_orders={"Remark": ["Canpick", "Cannotpick"]}
                     )
-                    fig_bar.update_traces(textposition='inside', textangle=0, textfont_size=20)
+                    fig_bar.update_traces(textposition='inside', textangle=0, textfont_size=18)
                     
                     # Annotation (ยอดรวม)
                     fig_bar.add_annotation(
                         x='Order Count', y=total_order_count * 1.05, 
                         text=f"Total Order : {total_order_count:,}", 
-                        showarrow=False, font=dict(size=20, color="black", family="Arial")
+                        showarrow=False, font=dict(size=18, color="black", family="Arial")
                     )
                     fig_bar.add_annotation(
                         x='Boxes Qty', y=total_boxes_qty * 1.1, 
                         text=f"Total Boxes : {total_boxes_qty:,}", 
-                        showarrow=False, font=dict(size=20, color="black", family="Arial")
+                        showarrow=False, font=dict(size=18, color="black", family="Arial")
                     )
                     
                     y_max = max(total_order_count, total_boxes_qty) * 1.2 
@@ -275,7 +275,7 @@ def main():
                         barmode='stack', color_discrete_map=COLOR_MAP,
                         text='Order ID', category_orders={"Remark": ["Canpick", "Cannotpick"]}
                     )
-                    fig_stack.update_traces(textposition='inside', textangle=0, textfont_size=20)
+                    fig_stack.update_traces(textposition='inside', textangle=0, textfont_size=18)
                     
                     # Annotation (ยอดรวม)
                     y_max_store = 0
@@ -285,7 +285,7 @@ def main():
                         fig_stack.add_annotation(
                             x=seller, y=total_count * 1.1, 
                             text=f"Total Order : {total_count:,}",
-                            showarrow=False, font=dict(size=20, color="black", family="Arial")
+                            showarrow=False, font=dict(size=18, color="black", family="Arial")
                         )
                         if total_count > y_max_store:
                             y_max_store = total_count
@@ -300,6 +300,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
