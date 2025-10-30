@@ -195,7 +195,7 @@ def main():
     with left_main_col:
         # ส่วนนี้จะแสดงผลเมื่อ df ถูกโหลดข้อมูลแล้ว (จากคอลัมน์ขวา)
         st.markdown(
-            '<h2 style="font-size: 47px;">📊 Marketplace Dashboard</h2>', 
+            '<h2 style="font-size: 40px;">📊 Marketplace Dashboard</h2>', 
             unsafe_allow_html=True
         )
         if not df.empty:
@@ -300,6 +300,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
