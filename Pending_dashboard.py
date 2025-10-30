@@ -233,7 +233,7 @@ def main():
                         barmode='stack', color_discrete_map=COLOR_MAP,
                         text='Value', category_orders={"Remark": ["Canpick", "Cannotpick"]}
                     )
-                    fig_bar.update_traces(textposition='inside', textangle=0, textfont_size=13)
+                    fig_bar.update_traces(textposition='inside', textangle=0, textfont_size=14)
                     
                     # Annotation (ยอดรวม)
                     fig_bar.add_annotation(
@@ -275,7 +275,7 @@ def main():
                         barmode='stack', color_discrete_map=COLOR_MAP,
                         text='Order ID', category_orders={"Remark": ["Canpick", "Cannotpick"]}
                     )
-                    fig_stack.update_traces(textposition='inside', textangle=0, textfont_size=13)
+                    fig_stack.update_traces(textposition='inside', textangle=0, textfont_size=14)
                     
                     # Annotation (ยอดรวม)
                     y_max_store = 0
@@ -300,5 +300,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
