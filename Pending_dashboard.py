@@ -22,8 +22,8 @@ st.set_page_config(
 # ----------------------------------------------------------------------
 
 # --- (สำคัญ!) ตั้งค่าการ Login และ URL (จาก VBA) ---
-LOGIN_URL = "https://10.12.173.84/MarketPlace/Home/Logon"
-DOWNLOAD_URL = "https://10.12.173.84/MarketPlace/PickingList/PrintReport"
+LOGIN_URL = "http://10.12.173.84/MarketPlace/Home/Logon"
+DOWNLOAD_URL = "http://10.12.173.84/MarketPlace/PickingList/PrintReport"
 USERNAME = "30034388"  # (จาก VBA [cite: 344, 356, 326, 186])
 PASSWORD = "9"       # (จาก VBA [cite: 344, 356, 326, 186])
 
@@ -388,3 +388,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
