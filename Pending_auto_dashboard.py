@@ -2,11 +2,13 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import openpyxl
-import requests  # 👈 (เพิ่มใหม่)
-from bs4 import BeautifulSoup  # 👈 (เพิ่มใหม่)
-import io  # 👈 (เพิ่มใหม่)
-import numpy as np  # 👈 (เพิ่มใหม่)
-import warnings  # 👈 (เพิ่มใหม่)
+import requests
+from bs4 import BeautifulSoup
+import io
+import numpy as np
+import warnings
+from requests.adapters import HTTPAdapter # 👈 (เพิ่มใหม่)
+from urllib3.util.retry import Retry      # 👈 (เพิ่มใหม่)
 
 # ----------------------------------------------------------------------
 # 1. ตั้งค่าหน้า Dashboard
@@ -24,10 +26,10 @@ st.set_page_config(
 # --- (สำคัญ!) ตั้งค่าการ Login และ URL (จาก VBA) ---
 LOGIN_URL = "https://10.12.173.84/MarketPlace/Home/Logon"
 DOWNLOAD_URL = "https://10.12.173.84/MarketPlace/PickingList/PrintReport"
-USERNAME = "30034388"  # (จาก VBA)
-PASSWORD = "9"     # (จาก VBA)
+USERNAME = "30034388" 
+PASSWORD = "9"      
 
-# กำหนดสีตามโจทย์ (เหมือนเดิม)
+# กำหนดสีตามโจทย์
 COLOR_MAP = {
     "Canpick": "#0066FF",
     "Cannotpick": "#FF9966",
@@ -38,40 +40,68 @@ STORE_COLOR_MAP = {
 }
 
 # ----------------------------------------------------------------------
-# 💥 (ใหม่!) ฟังก์ชันนี้ถูกสร้างขึ้นมาแทนที่ VBA ทั้งหมด
+# 💥 (แก้ไข!) ฟังก์ชันดึงข้อมูล เพิ่มการแก้ Proxy และ Timeout
 # ----------------------------------------------------------------------
-@st.cache_data(ttl=600)  # Cache ข้อมูลไว้ 10 นาที
-# 💥 (อัปเดต!) เพิ่ม '_' ที่ log_placeholder เพื่อบอก Streamlit ให้ข้ามการ Caching
+@st.cache_data(ttl=600)
 def fetch_all_data(_log_placeholder):
     """
-    ฟังก์ชันนี้จำลองการทำงานของ VBA Modules 1-4... (อัปเดตเพิ่ม Referer)
+    ฟังก์ชันนี้จำลองการทำงานของ VBA Modules 1-4... (อัปเดตแก้ Proxy/Timeout)
     """
 
-    # 1. สร้าง Session และปิดการตรวจสอบ SSL (สำหรับ IP ภายใน)
+    # 1. สร้าง Session
     s = requests.Session()
+    
+    # 🚨 FIX 1: ปิดการใช้ System Proxy (เพื่อให้วิ่งตรงหา IP 10.x.x.x ได้)
+    s.trust_env = False 
+    
+    # 🚨 FIX 2: ปิดการตรวจสอบ SSL
     s.verify = False
+    
+    # 🚨 FIX 3: เพิ่มระบบ Retry (ลองใหม่ 3 ครั้งถ้าต่อไม่ติด)
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1, # รอ 1 วินาทีก่อนลองใหม่
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
 
-    # (ใหม่!) เพิ่ม Header User-Agent เพื่อปลอมเป็นเบราว์เซอร์
+    # Header User-Agent
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36'
     }
     s.headers.update(headers)
-    # -----------------------------------------------------------
-
+    
     warnings.filterwarnings('ignore', 'Unverified HTTPS request')
 
-    # 2. GET หน้า Login เพื่อดึง Token (เหมือน VBA)
+    # กำหนด Timeout (วินาที)
+    TIMEOUT_SEC = 15
+
+    # 2. GET หน้า Login เพื่อดึง Token
     try:
-        login_page_response = s.get(LOGIN_URL)
+        # ใส่ timeout เพื่อไม่ให้ค้างยาว
+        login_page_response = s.get(LOGIN_URL, timeout=TIMEOUT_SEC)
         login_page_response.raise_for_status()
         soup = BeautifulSoup(login_page_response.text, 'html.parser')
-        token = soup.find('input', {'name': '__RequestVerificationToken'})['value']
+        
+        # ตรวจสอบว่ามี Token ไหม
+        token_input = soup.find('input', {'name': '__RequestVerificationToken'})
+        if not token_input:
+             _log_placeholder.error(f"❌ [Step 1 FAILED] ไม่พบ Token ในหน้า Login (อาจเข้าผิดหน้า หรือต้อง VPN)")
+             return pd.DataFrame()
+             
+        token = token_input['value']
+
+    except requests.exceptions.ConnectTimeout:
+        _log_placeholder.error(f"❌ [Step 1 FAILED] เชื่อมต่อ Server ไม่ได้ (Timeout) กรุณาตรวจสอบว่าต่อ VPN หรือสาย LAN บริษัทแล้วหรือยัง?")
+        return pd.DataFrame()
     except Exception as e:
-        # 💥 (อัปเดต!) เขียน Error ลงใน placeholder แทน
-        _log_placeholder.error(f"❌ [Step 1 FAILED] ไม่สามารถเชื่อมต่อหน้า Login ({LOGIN_URL}) ได้: {e}")
+        _log_placeholder.error(f"❌ [Step 1 FAILED] ไม่สามารถเชื่อมต่อหน้า Login ได้: {e}")
         return pd.DataFrame()
 
-    # 3. POST ข้อมูล Login (เหมือน VBA)
+    # 3. POST ข้อมูล Login
     login_data = {
         '__RequestVerificationToken': token,
         'LoginType': 'UserAuthentication',
@@ -79,145 +109,114 @@ def fetch_all_data(_log_placeholder):
         'Password': PASSWORD
     }
 
-    # (อัปเดต!) เพิ่ม 'Referer' header สำหรับการ POST โดยเฉพาะ
     post_headers = {
         'Referer': LOGIN_URL
     }
 
     try:
-        # (อัปเดต!) ส่ง headers ที่อัปเดตไปพร้อมกับ POST
-        login_response = s.post(LOGIN_URL, data=login_data, headers=post_headers)
+        login_response = s.post(LOGIN_URL, data=login_data, headers=post_headers, timeout=TIMEOUT_SEC)
         login_response.raise_for_status()
 
-        # (อัปเดต!) แก้ไขเงื่อนไขการตรวจสอบ Login
         if "MarketPlace" not in login_response.url or "Logon" in login_response.url:
-             # 💥 (อัปเดต!) เขียน Error ลงใน placeholder แทน
-             _log_placeholder.error(f"❌ [Step 2 FAILED] Login ไม่สำเร็จ! (อาจรหัสผ่านผิด หรือ Server ปฏิเสธ)")
-             _log_placeholder.warning(f"Debug: Server redirect ไปที่ URL: {login_response.url}")
+             _log_placeholder.error(f"❌ [Step 2 FAILED] Login ไม่สำเร็จ! (Username/Password ผิด หรือ Server ปฏิเสธ)")
              return pd.DataFrame()
 
     except Exception as e:
-        # 💥 (อัปเดต!) เขียน Error ลงใน placeholder แทน
         _log_placeholder.error(f"❌ [Step 2 FAILED] การ Login ล้มเหลว: {e}")
         return pd.DataFrame()
 
-    # 💥 (อัปเดต!) เขียน Success ลงใน placeholder แทน
     _log_placeholder.success("✅ [Step 1 & 2] Login สำเร็จ!")
 
-    # 4. กำหนด Report 4 ตัวที่ต้องดึง (จาก Modules 1-4)
+    # 4. กำหนด Report 4 ตัว
     reports_to_fetch = [
-        {'store': '7888', 'type': '1', 'remark': 'Canpick'},      # Module 1
-        {'store': '7888', 'type': '2', 'remark': 'Cannotpick'},  # Module 2
-        {'store': '7886', 'type': '1', 'remark': 'Canpick'},      # Module 3
-        {'store': '7886', 'type': '2', 'remark': 'Cannotpick'}   # Module 4
+        {'store': '7888', 'type': '1', 'remark': 'Canpick'},
+        {'store': '7888', 'type': '2', 'remark': 'Cannotpick'},
+        {'store': '7886', 'type': '1', 'remark': 'Canpick'},
+        {'store': '7886', 'type': '2', 'remark': 'Cannotpick'}
     ]
 
     all_dataframes = []
-    # 💥 (อัปเดต!) เขียน Progress Bar ลงใน placeholder แทน
     progress_bar = _log_placeholder.progress(0, "เริ่มต้นดาวน์โหลดข้อมูล...")
 
-    # 5. วนลูปดึงข้อมูลทั้ง 4 Report (เหมือน VBA)
+    # 5. วนลูปดึงข้อมูล
     for i, report in enumerate(reports_to_fetch):
         try:
             msg = f"กำลังดาวน์โหลด: {report['remark']} Store {report['store']}..."
-            # 💥 (อัปเดต!) เขียน Status ลงใน placeholder แทน
             _log_placeholder.write(msg)
             progress_bar.progress((i+1)/len(reports_to_fetch), msg)
 
             params = {'typereport': report['type'], 'storeno': report['store']}
-            download_response = s.get(DOWNLOAD_URL, params=params)
+            
+            # ใส่ timeout ตอนโหลดไฟล์ด้วย
+            download_response = s.get(DOWNLOAD_URL, params=params, timeout=TIMEOUT_SEC)
             download_response.raise_for_status()
 
-            # VBA เริ่ม copy ที่ A3 (header คือแถว 3)
-            # ดังนั้นใน Pandas header=2 (0-indexed)
             df_temp = pd.read_excel(io.BytesIO(download_response.content), header=2)
-
-            # VBA Copy A:G (7 คอลัมน์)
             df_temp = df_temp.iloc[:, 0:7]
             df_temp.columns = ['ColA', 'ColB', 'ColC', 'ColD', 'ColE', 'ColF', 'ColG']
-
-            # VBA เติมคอลัมน์ H และ I
             df_temp['Remark'] = report['remark']
-            df_temp['Store'] = int(report['store']) # แปลงเป็นตัวเลขเพื่อความถูกต้อง
+            df_temp['Store'] = int(report['store'])
 
             all_dataframes.append(df_temp)
 
         except Exception as e:
-            # 💥 (อัปเดต!) เขียน Warning ลงใน placeholder แทน
             _log_placeholder.warning(f"⚠️ ดาวน์โหลด {report['remark']} {report['store']} ล้มเหลว: {e}")
 
     progress_bar.empty()
     if not all_dataframes:
-        # 💥 (อัปเดต!) เขียน Error ลงใน placeholder แทน
         _log_placeholder.error("❌ [Step 3 FAILED] ไม่สามารถดาวน์โหลดข้อมูลได้เลย")
         return pd.DataFrame()
 
-    # 💥 (อัปเดต!) เขียน Success ลงใน placeholder แทน
     _log_placeholder.success(f"✅ [Step 3] ดาวน์โหลดข้อมูลทั้ง {len(all_dataframes)} ส่วนสำเร็จ!")
 
-    # 6. รวม DataFrame (เหมือน VBA ที่ Paste ลงชีตเดียวกัน)
+    # 6. รวม DataFrame
     df_combined = pd.concat(all_dataframes, ignore_index=True)
 
-    # 7. ลบข้อมูลซ้ำ (เหมือน VBA)
-    # VBA ใช้ Columns:=2 (คือ ColB หรือ 'Order ID')
+    # 7. ลบข้อมูลซ้ำ
     df_combined = df_combined.drop_duplicates(subset=['ColB'], keep='first')
 
-    # 8. คำนวณ BoxesQty (เหมือนสูตรใน Runmine.txt)
-    # สูตร VBA: =IF(RC[-3]/RC[-4]<1,RC[-3],RC[-3]/RC[-4])
-    # คือ: J = IF(G/F < 1, G, G/F)
-
+    # 8. คำนวณ BoxesQty
     col_f_num = pd.to_numeric(df_combined['ColF'], errors='coerce')
     col_g_num = pd.to_numeric(df_combined['ColG'], errors='coerce')
-
-    # แทนค่า 0 ใน ColF ด้วย NaN เพื่อป้องกันหารด้วย 0
     col_f_safe = col_f_num.replace(0, np.nan)
-
     ratio = col_g_num / col_f_safe
 
-    # ใช้ np.where เพื่อจำลอง IF
     df_combined['ColJ_BoxesQty'] = np.where(
-        ratio < 1,  # เงื่อนไข (G/F < 1)
-        col_g_num,  # ถ้าจริง (ใช้ G)
-        ratio       # ถ้าเท็จ (ใช้ G/F)
+        ratio < 1,
+        col_g_num,
+        ratio
     )
-
-    # ถ้าเกิด NaN (เช่น F=0 หรือ G/F < 1 เป็นเท็จ) ให้ใช้ค่าจาก ColG แทน
     df_combined['ColJ_BoxesQty'] = df_combined['ColJ_BoxesQty'].fillna(col_g_num)
 
-
-    # 9. เปลี่ยนชื่อคอลัมน์ให้ตรงกับที่ Dashboard คาดหวัง
+    # 9. เปลี่ยนชื่อคอลัมน์
     df_final = df_combined.rename(columns={
-        'ColA': 'Seller Center', # Index 0
-        'ColB': 'Order ID',      # Index 1
-        'ColD': 'SKU (TPNB)',    # Index 3
-        'ColE': 'Description',   # Index 4
-        'Remark': 'Remark',      # Index 7 (VBA Col H)
-        'Store': 'Store',        # Index 8 (VBA Col I)
-        'ColJ_BoxesQty': 'BoxesQty' # Index 9 (VBA Col J)
+        'ColA': 'Seller Center', 
+        'ColB': 'Order ID',
+        'ColD': 'SKU (TPNB)',
+        'ColE': 'Description',
+        'Remark': 'Remark',
+        'Store': 'Store',
+        'ColJ_BoxesQty': 'BoxesQty'
     })
 
-    # 10. เลือกเฉพาะคอลัมน์ที่ Dashboard ต้องการใช้
+    # 10. เลือกเฉพาะคอลัมน์ที่ใช้
     final_columns = [
         'Seller Center', 'Order ID', 'SKU (TPNB)', 'Description',
         'Remark', 'Store', 'BoxesQty'
     ]
     df_final = df_final[final_columns]
-
-    # 11. ทำความสะอาดข้อมูลครั้งสุดท้าย (เหมือนโค้ดเดิม)
     df_final['BoxesQty'] = pd.to_numeric(df_final['BoxesQty'], errors='coerce').fillna(0).astype(int)
 
-    # 💥 (อัปเดต!) เขียน Success ลงใน placeholder แทน
     _log_placeholder.success("✅ [Step 4] ประมวลผลข้อมูลและคำนวณ BoxesQty สำเร็จ!")
     return df_final
 
 
 # ----------------------------------------------------------------------
-# 3. ส่วน Main Logic (💥 ปรับปรุงใหม่ทั้งหมด 💥)
+# 3. ส่วน Main Logic
 # ----------------------------------------------------------------------
 
 def main():
 
-    # --- (ROW 1: Title and Button) ---
     col_title, col_button_space = st.columns([1.5, 1])
     with col_title:
         st.markdown(
@@ -228,50 +227,31 @@ def main():
         st.markdown("<br>", unsafe_allow_html=True)
         fetch_button_clicked = st.button("🚀 Fetch Latest Data", use_container_width=True, help="กดเพื่อดึงข้อมูลล่าสุดจากเว็บ (แทนการรัน Macro)")
 
-    df = pd.DataFrame() # กำหนด df ว่างเปล่าล่วงหน้า
+    df = pd.DataFrame()
 
-    # --- (กำหนด Layout ของกราฟไว้ล่วงหน้า) ---
-    
-    # --- (ROW 2: Section 1 and Pie Chart) ---
     sec1_col_left, sec1_col_right = st.columns([1.5, 1])
-    
-    # --- (ROW 3: Section 2 and Section 3) ---
-    st.divider() # เพิ่มเส้นคั่นระหว่างแถว
+    st.divider()
     sec2_col_left, sec2_col_right = st.columns([1.5, 1])
 
-    # --- (ROW 4: Log Area) ---
-    st.divider() # เพิ่มเส้นคั่น
+    st.divider()
     st.header("4. สถานะการดึงข้อมูล (Log)")
-    log_container = st.container(border=True) # สร้าง container เปล่าๆ
+    log_container = st.container(border=True)
 
-    # ------------------------------------------------------------------
-    # 💥 Logic การ Fetch และแสดงผล
-    # ------------------------------------------------------------------
-
-    # ถ้ายังไม่กดปุ่ม ให้แสดง Info ใน Log
     if not fetch_button_clicked:
         log_container.info("กรุณากดปุ่ม 'Fetch Latest Data' เพื่อเริ่มแสดงผลแดชบอร์ด", icon="⬆️")
 
-    # ถ้ากดปุ่มแล้ว
     if fetch_button_clicked:
         try:
-            # ล้าง cache ก่อนดึงใหม่
             st.cache_data.clear()
-            # 💥 (อัปเดต!) ส่ง log_container เข้าไปในฟังก์ชัน
             df = fetch_all_data(log_container)
         except Exception as e:
             log_container.error(f"เกิดข้อผิดพลาดร้ายแรงในการโหลดข้อมูล: {e}")
             df = pd.DataFrame()
 
-    # ------------------------------------------------------------------
-    # 💥 ส่วนแสดงผลกราฟ (จะทำงานเมื่อ df มีข้อมูล)
-    # ------------------------------------------------------------------
     if not df.empty:
 
-        # --- (แสดงผลใน ROW 2: Section 1 and Pie) ---
         with sec1_col_left:
             Stores = df['Store'].unique()
-            # (โค้ดส่วน Section 1... เหมือนเดิมทุกประการ)
             st.header("1. Pending by Store")
             bar_cols = st.columns(len(Stores))
 
@@ -296,6 +276,9 @@ def main():
                         text='Value', category_orders={"Remark": ["Canpick", "Cannotpick"]}
                     )
                     fig_bar.update_traces(textposition='inside', textangle=0, textfont_size=11)
+                    # จัดรูปแบบตัวเลขให้มี comma
+                    text_labels = ['{:,.0f}'.format(val) for val in combined_data['Value']]
+                    fig_bar.update_traces(text=text_labels)
 
                     fig_bar.add_annotation(
                         x='Order Count', y=total_order_count * 1.05,
@@ -313,11 +296,9 @@ def main():
                     st.plotly_chart(fig_bar, use_container_width=True)
 
         with sec1_col_right:
-            # เพิ่ม <br> เพื่อให้ Pie Chart เริ่มในระดับเดียวกับ Header 1
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True) 
             
-            # (โค้ดส่วน Pie Chart... เหมือนเดิมทุกประการ)
             pie_data = df.groupby('Store')['Order ID'].nunique().reset_index()
             pie_data = pie_data.rename(columns={'Order ID': 'Total Order Count'})
 
@@ -331,37 +312,22 @@ def main():
             )
             fig_pie.update_traces(
                 textposition='inside',
-                textinfo='text',
+                textinfo='percent+value',
                 texttemplate="%{value:,}<br>(%{percent})",
                 hoverinfo='label+percent+value',
-                textfont_size=16,
+                textfont_size=18,
                 rotation=360,
                 sort=False
             )
             fig_pie.update_layout(
                 margin=dict(t=0, b=0, l=0, r=0),
                 showlegend=True,
-                legend=dict(
-                    orientation="v",
-                    yanchor="top",
-                    y=0.5,
-                    xanchor="right",
-                    x=-0.2
-                )
-            )
-            fig_pie.update_traces(
-                textposition='inside',
-                textinfo='percent+value',
-                texttemplate="%{value:,}<br>(%{percent})",
-                hoverinfo='label+percent+value',
-                textfont_size=18
+                legend=dict(orientation="v", yanchor="top", y=0.5, xanchor="right", x=-0.2)
             )
             st.plotly_chart(fig_pie, use_container_width=True)
 
-        # --- (แสดงผลใน ROW 3: Section 2 and Section 3) ---
         with sec2_col_left:
             Stores = df['Store'].unique()
-            # (โค้ดส่วน Section 2... เหมือนเดิมทุกประการ)
             st.header("2. Pending by Seller Center")
             stack_cols = st.columns(len(Stores))
 
@@ -378,7 +344,9 @@ def main():
                         barmode='stack', color_discrete_map=COLOR_MAP,
                         text='Order ID', category_orders={"Remark": ["Canpick", "Cannotpick"]}
                     )
-                    fig_stack.update_traces(textposition='inside', textangle=0, textfont_size=11)
+                    
+                    text_labels_stack = ['{:,.0f}'.format(val) for val in stack_data['Order ID']]
+                    fig_stack.update_traces(text=text_labels_stack, textposition='inside', textangle=0, textfont_size=11)
 
                     y_max_store = 0
                     for _, row in total_order_by_seller.iterrows():
@@ -396,13 +364,10 @@ def main():
                     st.plotly_chart(fig_stack, use_container_width=True)
 
         with sec2_col_right:
-            # (โค้ดส่วน Section 3... เหมือนเดิมทุกประการ)
             
-            # 💥 (สำคัญ!) ต้องนิยามฟังก์ชัน helper นี้ก่อนเรียกใช้
             def display_top_10(df_all, store_id, title_col):
-                # (โค้ดฟังก์ชัน display_top_10 เหมือนเดิม)
                 cant_pick_store_df = df_all[
-                    (df_all['Remark'] == "Cannotpick") &
+                    (df_all['Remark'] == "Cannotpick") & 
                     (df_all['Store'].astype(str) == str(store_id))
                 ]
                 with title_col:
@@ -424,7 +389,6 @@ def main():
             col_7888, col_7886 = st.columns(2)
             display_top_10(df, 7888, col_7888)
             display_top_10(df, 7886, col_7886)
-
 
 if __name__ == '__main__':
     main()
